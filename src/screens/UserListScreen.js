@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,75 +8,162 @@ import {
   Image,
   TextInput,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  Modal,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
 import { PageHeader } from "../components";
 import { colors } from "../../theme/colors";
 import { useCustomers } from "../hooks/useRedux";
 import { setSearchQuery } from "../store/slices/customerSlice";
+import { CustomerStorage, OrderStorage } from "../utils/orderStorage";
 
 const { width: screenWidth } = Dimensions.get("window");
 
 const UserListScreen = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [customerOrderCounts, setCustomerOrderCounts] = useState({});
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [showActionModal, setShowActionModal] = useState(false);
 
-  // Mock user data - replace with actual data from your API/database
-  const [users] = useState([
-    {
-      id: 1,
-      name: "Ahmed Khan",
-      email: "ahmed.khan@email.com",
-      phone: "+92 300 1234567",
-      image: null,
-      ordersCount: 5,
-      status: "active",
-    },
-    {
-      id: 2,
-      name: "Sarah Johnson",
-      email: "sarah.j@email.com",
-      phone: "+92 301 2345678",
-      image: "https://randomuser.me/api/portraits/women/1.jpg",
-      ordersCount: 12,
-      status: "active",
-    },
-    {
-      id: 3,
-      name: "Muhammad Ali",
-      email: "m.ali@email.com",
-      phone: "+92 302 3456789",
-      image: null,
-      ordersCount: 8,
-      status: "inactive",
-    },
-    {
-      id: 4,
-      name: "Emma Wilson",
-      email: "emma.wilson@email.com",
-      phone: "+92 303 4567890",
-      image: "https://randomuser.me/api/portraits/women/2.jpg",
-      ordersCount: 3,
-      status: "active",
-    },
-    {
-      id: 5,
-      name: "Hassan Ahmed",
-      email: "hassan.a@email.com",
-      phone: "+92 304 5678901",
-      image: null,
-      ordersCount: 15,
-      status: "active",
-    },
-    {
-      id: 6,
-      name: "Lisa Chen",
-      email: "lisa.chen@email.com",
-      phone: "+92 305 6789012",
-      image: "https://randomuser.me/api/portraits/women/3.jpg",
-      ordersCount: 7,
-      status: "active",
-    },
-  ]);
+  // Load customers and their order counts from database
+  const loadCustomers = async () => {
+    try {
+      setLoading(true);
+
+      // Get all customers
+      const customers = await CustomerStorage.getAllCustomers();
+
+      // Get all orders to count orders per customer
+      const orders = await OrderStorage.getAllOrders();
+
+      // Count orders for each customer
+      const orderCounts = {};
+      orders.forEach((order) => {
+        const customerPhone = order.customer.phone;
+        orderCounts[customerPhone] = (orderCounts[customerPhone] || 0) + 1;
+      });
+
+      // Transform customers data to match UI expectations
+      const transformedUsers = customers.map((customer) => ({
+        id: customer.id,
+        name: customer.name,
+        email: customer.email || `${customer.phone}@example.com`, // Fallback email
+        phone: customer.phone,
+        image: customer.image,
+        ordersCount: orderCounts[customer.phone] || 0,
+        status: "active", // Default to active, you can add status logic later
+        createdAt: customer.createdAt,
+      }));
+
+      setUsers(transformedUsers);
+      setCustomerOrderCounts(orderCounts);
+    } catch (error) {
+      console.error("Error loading customers:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refresh data
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadCustomers();
+    setRefreshing(false);
+  };
+
+  // Load data on component mount
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  // Focus listener to reload data when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadCustomers();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  // Handle user actions
+  const handleUserPress = (user) => {
+    setSelectedUser(user);
+    setShowActionModal(true);
+  };
+
+  const handleViewUser = () => {
+    setShowActionModal(false);
+    // Navigate to user details screen (you can create this screen)
+    navigation.navigate("CustomerDetails", { customer: selectedUser });
+  };
+
+  const handleEditUser = () => {
+    setShowActionModal(false);
+    // Navigate to edit customer screen
+    navigation.navigate("AddCustomer", {
+      editMode: true,
+      customer: selectedUser,
+    });
+  };
+
+  const handleDeleteUser = () => {
+    setShowActionModal(false);
+
+    Alert.alert(
+      "Delete Customer",
+      `Are you sure you want to delete ${selectedUser?.name}? This action cannot be undone.`,
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: confirmDeleteUser,
+        },
+      ]
+    );
+  };
+
+  const confirmDeleteUser = async () => {
+    try {
+      // Check if customer has orders
+      if (selectedUser?.ordersCount > 0) {
+        Alert.alert(
+          "Cannot Delete Customer",
+          `${selectedUser.name} has ${selectedUser.ordersCount} order(s). Please delete all orders first before deleting the customer.`,
+          [{ text: "OK" }]
+        );
+        return;
+      }
+
+      // Delete the customer
+      await CustomerStorage.deleteCustomer(selectedUser.id);
+
+      // Show success message
+      Alert.alert(
+        "Success",
+        `${selectedUser.name} has been deleted successfully.`,
+        [{ text: "OK" }]
+      );
+
+      // Refresh the list
+      await loadCustomers();
+    } catch (error) {
+      console.error("Error deleting customer:", error);
+      Alert.alert(
+        "Error",
+        error.message || "Failed to delete customer. Please try again."
+      );
+    }
+  };
 
   const filteredUsers = users.filter(
     (user) =>
@@ -110,7 +197,7 @@ const UserListScreen = ({ navigation }) => {
   const renderUserItem = ({ item }) => (
     <TouchableOpacity
       style={styles.userCard}
-      onPress={() => console.log("User selected:", item.name)}
+      onPress={() => handleUserPress(item)}
       activeOpacity={0.7}
     >
       <View style={styles.userImageContainer}>
@@ -196,6 +283,127 @@ const UserListScreen = ({ navigation }) => {
     </View>
   );
 
+  // Loading component
+  const renderLoading = () => (
+    <View style={styles.loadingContainer}>
+      <ActivityIndicator size="large" color="#3498db" />
+      <Text style={styles.loadingText}>Loading customers...</Text>
+    </View>
+  );
+
+  // Empty state component
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <MaterialIcons name="people-outline" size={80} color="#bdc3c7" />
+      <Text style={styles.emptyTitle}>No Customers Found</Text>
+      <Text style={styles.emptySubtitle}>
+        {searchQuery
+          ? "No customers match your search criteria"
+          : "Start by adding your first customer"}
+      </Text>
+      {!searchQuery && (
+        <TouchableOpacity
+          style={styles.emptyButton}
+          onPress={() => navigation.navigate("AddCustomer")}
+        >
+          <Text style={styles.emptyButtonText}>Add Customer</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  // Action Modal Component
+  const renderActionModal = () => (
+    <Modal
+      visible={showActionModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowActionModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalUserInfo}>
+              {selectedUser?.image ? (
+                <Image
+                  source={{ uri: selectedUser.image }}
+                  style={styles.modalUserImage}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.modalAvatarContainer,
+                    {
+                      backgroundColor: getAvatarColor(selectedUser?.name || ""),
+                    },
+                  ]}
+                >
+                  <Text style={styles.modalAvatarText}>
+                    {getInitials(selectedUser?.name || "")}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.modalUserDetails}>
+                <Text style={styles.modalUserName}>{selectedUser?.name}</Text>
+                <Text style={styles.modalUserPhone}>{selectedUser?.phone}</Text>
+                <Text style={styles.modalUserOrders}>
+                  {selectedUser?.ordersCount} orders
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setShowActionModal(false)}
+            >
+              <MaterialIcons name="close" size={24} color="#7f8c8d" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.viewButton]}
+              onPress={handleViewUser}
+            >
+              <MaterialIcons name="visibility" size={24} color="#3498db" />
+              <Text style={[styles.actionButtonText, styles.viewButtonText]}>
+                View Details
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.editButton]}
+              onPress={handleEditUser}
+            >
+              <MaterialIcons name="edit" size={24} color="#f39c12" />
+              <Text style={[styles.actionButtonText, styles.editButtonText]}>
+                Edit Customer
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={handleDeleteUser}
+            >
+              <MaterialIcons name="delete" size={24} color="#e74c3c" />
+              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>
+                Delete Customer
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <PageHeader title="User List" showBackButton={true} />
+        {renderLoading()}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <PageHeader title="User List" showBackButton={true} />
@@ -205,9 +413,21 @@ const UserListScreen = ({ navigation }) => {
         renderItem={renderUserItem}
         keyExtractor={(item) => item.id.toString()}
         ListHeaderComponent={renderHeader}
+        ListEmptyComponent={renderEmptyState}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContainer}
+        contentContainerStyle={[
+          styles.listContainer,
+          filteredUsers.length === 0 && styles.emptyListContainer,
+        ]}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#3498db"]}
+            tintColor="#3498db"
+          />
+        }
       />
 
       {/* Floating Action Button */}
@@ -218,6 +438,9 @@ const UserListScreen = ({ navigation }) => {
       >
         <MaterialIcons name="person-add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Action Modal */}
+      {renderActionModal()}
     </View>
   );
 };
@@ -388,6 +611,195 @@ const styles = StyleSheet.create({
 
   separator: {
     height: 12,
+  },
+
+  /* Loading State */
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 50,
+  },
+
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: "#7f8c8d",
+  },
+
+  /* Empty State */
+  emptyContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+    paddingVertical: 60,
+  },
+
+  emptyListContainer: {
+    flexGrow: 1,
+  },
+
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#2c3e50",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+
+  emptySubtitle: {
+    fontSize: 16,
+    color: "#7f8c8d",
+    textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 24,
+  },
+
+  emptyButton: {
+    backgroundColor: "#3498db",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+
+  emptyButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+
+  /* Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 400,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#ecf0f1",
+  },
+
+  modalUserInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+
+  modalUserImage: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 12,
+  },
+
+  modalAvatarContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  modalAvatarText: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+
+  modalUserDetails: {
+    flex: 1,
+  },
+
+  modalUserName: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#2c3e50",
+    marginBottom: 2,
+  },
+
+  modalUserPhone: {
+    fontSize: 14,
+    color: "#7f8c8d",
+    marginBottom: 2,
+  },
+
+  modalUserOrders: {
+    fontSize: 12,
+    color: "#3498db",
+    fontWeight: "500",
+  },
+
+  modalCloseButton: {
+    padding: 8,
+  },
+
+  modalActions: {
+    padding: 20,
+  },
+
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: "500",
+    marginLeft: 12,
+  },
+
+  viewButton: {
+    backgroundColor: "#ecf7ff",
+    borderColor: "#3498db",
+  },
+
+  viewButtonText: {
+    color: "#3498db",
+  },
+
+  editButton: {
+    backgroundColor: "#fef9e7",
+    borderColor: "#f39c12",
+  },
+
+  editButtonText: {
+    color: "#f39c12",
+  },
+
+  deleteButton: {
+    backgroundColor: "#fdf2f2",
+    borderColor: "#e74c3c",
+    marginBottom: 0,
+  },
+
+  deleteButtonText: {
+    color: "#e74c3c",
   },
 
   /* Floating Action Button */

@@ -1,5 +1,5 @@
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, Alert } from "react-native";
 
 import * as React from "react";
 import { Provider } from "react-redux";
@@ -20,14 +20,27 @@ export default function App() {
 
   const initializeApp = async () => {
     try {
+      console.log("Starting app initialization...");
+
       // Initialize SQLite database
       await StorageUtils.initializeDatabase();
       console.log("Database initialized successfully");
+
+      // Test database functionality
+      await StorageUtils.testDatabaseConnection();
+      console.log("Database test passed");
+
       setDbInitialized(true);
     } catch (error) {
       console.error("Failed to initialize database:", error);
-      // You might want to show an error screen here
-      setDbInitialized(true); // Continue anyway for now
+      console.error("Error details:", error.message);
+
+      // Show error but continue - you might want to show an error screen instead
+      Alert.alert(
+        "Database Error",
+        "Failed to initialize database. Some features may not work properly.",
+        [{ text: "Continue", onPress: () => setDbInitialized(true) }]
+      );
     }
   };
 

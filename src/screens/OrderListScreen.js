@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,6 @@ import { OrderStorage } from "../utils/orderStorage";
 
 const OrderListScreen = ({ navigation }) => {
   const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Load orders when screen comes into focus
@@ -27,14 +26,24 @@ const OrderListScreen = ({ navigation }) => {
 
   const loadOrders = async () => {
     try {
-      setLoading(true);
+      console.log("Loading orders from database...");
+
       const allOrders = await OrderStorage.getAllOrders();
+      console.log(`Loaded ${allOrders.length} orders`);
+
       setOrders(allOrders);
     } catch (error) {
-      Alert.alert("Error", "Failed to load orders");
       console.error("Error loading orders:", error);
-    } finally {
-      setLoading(false);
+      console.error("Error details:", error.message);
+
+      // Set empty array as fallback
+      setOrders([]);
+
+      Alert.alert(
+        "Database Error",
+        "Failed to load orders from database. Please try refreshing or restart the app.",
+        [{ text: "Retry", onPress: () => loadOrders() }, { text: "OK" }]
+      );
     }
   };
 
@@ -100,18 +109,22 @@ const OrderListScreen = ({ navigation }) => {
       { label: "In Progress", value: "in_progress" },
       { label: "Completed", value: "completed" },
       { label: "Cancelled", value: "cancelled" },
-    ];
+    ].filter((option) => option.value !== order.status);
 
-    const buttons = statusOptions
-      .filter((option) => option.value !== order.status)
-      .map((option) => ({
-        text: option.label,
-        onPress: () => updateOrderStatus(order.id, option.value),
-      }));
+    const buttons = statusOptions.map((option) => ({
+      text: option.label,
+      onPress: () => updateOrderStatus(order.id, option.value),
+    }));
 
     buttons.push({ text: "Cancel", style: "cancel" });
 
-    Alert.alert("Update Status", "Choose new status for this order:", buttons);
+    Alert.alert(
+      "Update Order Status",
+      `Current status: ${order.status
+        .replace("_", " ")
+        .toUpperCase()}\n\nSelect new status for Order ${order.id}:`,
+      buttons
+    );
   };
 
   const deleteOrder = async (orderId) => {
@@ -139,7 +152,14 @@ const OrderListScreen = ({ navigation }) => {
   };
 
   const renderOrderItem = ({ item }) => (
-    <View style={styles.orderCard}>
+    <TouchableOpacity
+      style={styles.orderCard}
+      onPress={() => {
+        // Navigate to order details screen if you create one
+        console.log("Order details:", item.id);
+      }}
+      activeOpacity={0.7}
+    >
       <View style={styles.orderHeader}>
         <View style={styles.orderInfo}>
           <Text style={styles.orderId}>{item.id}</Text>
@@ -165,33 +185,51 @@ const OrderListScreen = ({ navigation }) => {
 
       <View style={styles.orderDetails}>
         <View style={styles.detailRow}>
-          <Ionicons name="call-outline" size={16} color="#666" />
+          <Ionicons name="call-outline" size={18} color="#4a5568" />
           <Text style={styles.detailText}>{item.customer.phone}</Text>
         </View>
         <View style={styles.detailRow}>
-          <Ionicons name="calendar-outline" size={16} color="#666" />
+          <Ionicons name="calendar-outline" size={18} color="#4a5568" />
           <Text style={styles.detailText}>
             Delivery: {formatDate(item.order.deliveryDate)}
           </Text>
         </View>
         <View style={styles.detailRow}>
-          <Ionicons name="cash-outline" size={16} color="#666" />
-          <Text style={styles.detailText}>
-            Total: ${item.order.totalAmount}
+          <Ionicons name="cash-outline" size={18} color="#38a169" />
+          <Text
+            style={[styles.detailText, { color: "#38a169", fontWeight: "600" }]}
+          >
+            Total: {item.order.totalAmount}
           </Text>
         </View>
         <View style={styles.detailRow}>
-          <Ionicons name="shirt-outline" size={16} color="#666" />
+          <Ionicons name="shirt-outline" size={18} color="#4a5568" />
           <Text style={styles.detailText}>
             Suits: {item.order.suitCount || 0}
           </Text>
         </View>
+        {item.order.description && (
+          <View style={[styles.detailRow, { alignItems: "flex-start" }]}>
+            <Ionicons
+              name="document-text-outline"
+              size={18}
+              color="#4a5568"
+              style={{ marginTop: 2 }}
+            />
+            <Text style={styles.detailText} numberOfLines={2}>
+              {item.order.description}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.orderActions}>
         <TouchableOpacity
           style={[styles.actionButton, styles.statusButton]}
-          onPress={() => showStatusOptions(item)}
+          onPress={(e) => {
+            e.stopPropagation();
+            showStatusOptions(item);
+          }}
         >
           <Ionicons name="refresh-outline" size={18} color="#3498db" />
           <Text style={[styles.actionButtonText, { color: "#3498db" }]}>
@@ -201,7 +239,10 @@ const OrderListScreen = ({ navigation }) => {
 
         <TouchableOpacity
           style={[styles.actionButton, styles.deleteButton]}
-          onPress={() => deleteOrder(item.id)}
+          onPress={(e) => {
+            e.stopPropagation();
+            deleteOrder(item.id);
+          }}
         >
           <Ionicons name="trash-outline" size={18} color="#e74c3c" />
           <Text style={[styles.actionButtonText, { color: "#e74c3c" }]}>
@@ -213,22 +254,27 @@ const OrderListScreen = ({ navigation }) => {
       <Text style={styles.createdDate}>
         Created: {formatDate(item.createdAt)}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
-      <Ionicons name="document-outline" size={80} color="#bdc3c7" />
-      <Text style={styles.emptyTitle}>No Orders Found</Text>
+      <View style={styles.emptyIconContainer}>
+        <Ionicons name="receipt-outline" size={64} color="#a0aec0" />
+      </View>
+      <Text style={styles.emptyTitle}>No Orders Yet</Text>
       <Text style={styles.emptyMessage}>
-        Orders you create will appear here. Start by adding your first order.
+        Start managing your tailoring business by creating your first order.
+        Track measurements, delivery dates, and customer details all in one
+        place.
       </Text>
       <TouchableOpacity
         style={styles.addButton}
         onPress={() => navigation.navigate("AddOrder")}
+        activeOpacity={0.8}
       >
-        <Ionicons name="add-circle" size={20} color="#008080" />
-        <Text style={styles.addButtonText}>Add First Order</Text>
+        <Ionicons name="add-circle" size={24} color="#2c7a7b" />
+        <Text style={styles.addButtonText}>Create First Order</Text>
       </TouchableOpacity>
     </View>
   );
@@ -250,6 +296,15 @@ const OrderListScreen = ({ navigation }) => {
         }
         showsVerticalScrollIndicator={false}
       />
+
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate("AddOrder")}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
     </View>
   );
 };
@@ -257,143 +312,202 @@ const OrderListScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#f5f7fa",
   },
   listContainer: {
     padding: 16,
+    paddingBottom: 100, // Space for FAB
   },
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 16,
+    padding: 32,
   },
   orderCard: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "#f0f2f5",
   },
   orderHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 12,
+    marginBottom: 16,
   },
   orderInfo: {
     flex: 1,
+    marginRight: 12,
   },
   orderId: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#2c3e50",
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a202c",
     marginBottom: 4,
+    letterSpacing: 0.3,
   },
   customerName: {
-    fontSize: 14,
-    color: "#7f8c8d",
+    fontSize: 15,
+    color: "#4a5568",
+    fontWeight: "500",
   },
   statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    minWidth: 100,
+    justifyContent: "center",
   },
   statusIcon: {
-    marginRight: 4,
+    marginRight: 6,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "700",
     color: "#fff",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   orderDetails: {
-    marginBottom: 12,
+    marginBottom: 16,
+    backgroundColor: "#f8fafc",
+    padding: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: "#e2e8f0",
   },
   detailRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 6,
+    marginBottom: 8,
+    paddingVertical: 2,
   },
   detailText: {
     fontSize: 14,
-    color: "#666",
-    marginLeft: 8,
+    color: "#2d3748",
+    marginLeft: 12,
+    fontWeight: "500",
+    flex: 1,
   },
   orderActions: {
     flexDirection: "row",
     justifyContent: "space-between",
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
     marginBottom: 8,
   },
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
     flex: 0.48,
     justifyContent: "center",
+    minHeight: 44,
   },
   statusButton: {
-    borderColor: "#3498db",
-    backgroundColor: "#f8f9fa",
+    borderColor: "#3182ce",
+    backgroundColor: "#ebf8ff",
   },
   deleteButton: {
-    borderColor: "#e74c3c",
-    backgroundColor: "#f8f9fa",
+    borderColor: "#e53e3e",
+    backgroundColor: "#fed7d7",
   },
   actionButtonText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
-    marginLeft: 4,
+    marginLeft: 6,
   },
   createdDate: {
     fontSize: 12,
-    color: "#95a5a6",
+    color: "#718096",
     textAlign: "right",
+    marginTop: 8,
+    fontStyle: "italic",
   },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 60,
+    paddingVertical: 80,
+  },
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#f7fafc",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#e2e8f0",
+    borderStyle: "dashed",
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#2c3e50",
-    marginTop: 16,
-    marginBottom: 8,
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#2d3748",
+    marginTop: 24,
+    marginBottom: 12,
   },
   emptyMessage: {
-    fontSize: 14,
-    color: "#7f8c8d",
+    fontSize: 16,
+    color: "#718096",
     textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-    maxWidth: 280,
+    lineHeight: 24,
+    marginBottom: 32,
+    maxWidth: 300,
   },
   addButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#E6F2F2",
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: "#B3D9D9",
+    backgroundColor: "#e6fffa",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: "#38b2ac",
+    shadowColor: "#38b2ac",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   addButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#008080",
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#2c7a7b",
     marginLeft: 8,
+  },
+  fab: {
+    position: "absolute",
+    bottom: 30,
+    right: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#38b2ac",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#38b2ac",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 3,
+    borderColor: "#ffffff",
   },
 });
 

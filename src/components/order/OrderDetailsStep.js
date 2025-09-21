@@ -6,9 +6,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  Image,
+  Alert,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import * as ImagePicker from "expo-image-picker";
 import PrimaryButton from "../common/PrimaryButton";
 
 const OrderDetailsStep = ({
@@ -20,6 +24,7 @@ const OrderDetailsStep = ({
   onSave,
 }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [suitImages, setSuitImages] = useState(orderDetails.suitImages || []);
 
   const onDateChange = (event, selectedDate) => {
     const currentDate = selectedDate || orderDetails.deliveryDate;
@@ -32,6 +37,89 @@ const OrderDetailsStep = ({
     const month = (date.getMonth() + 1).toString().padStart(2, "0");
     const year = date.getFullYear();
     return `${day}/${month}/${year}`;
+  };
+
+  const requestPermissions = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission Required",
+        "Please grant camera roll permissions to add suit images."
+      );
+      return false;
+    }
+    return true;
+  };
+
+  const pickImage = async () => {
+    const hasPermission = await requestPermissions();
+    if (!hasPermission) return;
+
+    Alert.alert("Select Image", "Choose how you want to add a suit image", [
+      { text: "Camera", onPress: () => openCamera() },
+      { text: "Gallery", onPress: () => openGallery() },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const openCamera = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Please grant camera permissions.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      addImage(result.assets[0]);
+    }
+  };
+
+  const openGallery = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.8,
+    });
+
+    if (!result.canceled) {
+      addImage(result.assets[0]);
+    }
+  };
+
+  const addImage = (imageAsset) => {
+    const newImage = {
+      id: Date.now().toString(),
+      uri: imageAsset.uri,
+      name: `suit_image_${Date.now()}.jpg`,
+      type: "image/jpeg",
+    };
+
+    const updatedImages = [...suitImages, newImage];
+    setSuitImages(updatedImages);
+    setOrderDetails({ ...orderDetails, suitImages: updatedImages });
+  };
+
+  const removeImage = (imageId) => {
+    Alert.alert("Remove Image", "Are you sure you want to remove this image?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => {
+          const updatedImages = suitImages.filter((img) => img.id !== imageId);
+          setSuitImages(updatedImages);
+          setOrderDetails({ ...orderDetails, suitImages: updatedImages });
+        },
+      },
+    ]);
   };
 
   return (
@@ -161,6 +249,54 @@ const OrderDetailsStep = ({
         </View>
       </View>
 
+      {/* Suit Images Section */}
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="camera-outline" size={20} color="#008080" />
+          <Text style={styles.sectionTitle}>Suit Images</Text>
+        </View>
+
+        <View style={styles.imagesContainer}>
+          {/* Add Image Button */}
+          <TouchableOpacity style={styles.addImageButton} onPress={pickImage}>
+            <Ionicons name="add-circle-outline" size={32} color="#008080" />
+            <Text style={styles.addImageText}>Add Suit Image</Text>
+            <Text style={styles.addImageSubtext}>
+              Take photo or select from gallery
+            </Text>
+          </TouchableOpacity>
+
+          {/* Display Selected Images */}
+          {suitImages.length > 0 && (
+            <View style={styles.selectedImagesContainer}>
+              <Text style={styles.selectedImagesTitle}>
+                Selected Images ({suitImages.length})
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.imagesScrollView}
+              >
+                {suitImages.map((image) => (
+                  <View key={image.id} style={styles.imageContainer}>
+                    <Image
+                      source={{ uri: image.uri }}
+                      style={styles.suitImage}
+                    />
+                    <TouchableOpacity
+                      style={styles.removeImageButton}
+                      onPress={() => removeImage(image.id)}
+                    >
+                      <Ionicons name="close-circle" size={24} color="#e74c3c" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      </View>
+
       {/* Additional Notes Section */}
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
@@ -202,6 +338,12 @@ const OrderDetailsStep = ({
           <Text style={styles.summaryLabel}>Suits:</Text>
           <Text style={styles.summaryValue}>
             {orderDetails.suitCount || "0"}
+          </Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Images:</Text>
+          <Text style={styles.summaryValue}>
+            {suitImages.length} photo{suitImages.length !== 1 ? "s" : ""}
           </Text>
         </View>
         <View style={styles.summaryRow}>
@@ -470,6 +612,66 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 6,
+  },
+
+  // Suit Images Styles
+  imagesContainer: {
+    gap: 16,
+  },
+  addImageButton: {
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    padding: 20,
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#E6F2F2",
+    borderStyle: "dashed",
+  },
+  addImageText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#008080",
+    marginTop: 8,
+  },
+  addImageSubtext: {
+    fontSize: 12,
+    color: "#6c757d",
+    marginTop: 4,
+    textAlign: "center",
+  },
+  selectedImagesContainer: {
+    marginTop: 8,
+  },
+  selectedImagesTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#2c3e50",
+    marginBottom: 12,
+  },
+  imagesScrollView: {
+    flexDirection: "row",
+  },
+  imageContainer: {
+    position: "relative",
+    marginRight: 12,
+  },
+  suitImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: "#f8f9fa",
+  },
+  removeImageButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
 
